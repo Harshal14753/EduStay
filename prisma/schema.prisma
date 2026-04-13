@@ -1,0 +1,248 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User model for both students and property owners
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  password  String
+  phone     String
+  userType  UserType
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Student specific fields
+  university  String?
+  stream      Stream?
+  serviceType ServiceType?
+
+  // Property Owner specific fields
+  businessType BusinessType?
+
+  // Relations
+  accommodationListings AccommodationListing[]
+  foodServiceListings   FoodServiceListing[]
+  inquiries             Inquiry[]
+  reviews               Review[]
+
+  @@map("users")
+}
+
+model University {
+  id     String @id @default(cuid())
+  name   String
+  stream Stream
+  city   String
+  state  String
+
+  @@map("universities")
+}
+
+model AccommodationListing {
+  id                 String            @id @default(cuid())
+  propertyName       String
+  photos             String[]
+  dailyRate          Int
+  monthlyRent        Int     @default(0)
+  minStay            Int     @default(1)
+  deposit            Int?
+  availability       Boolean           @default(true)
+  amenities          String[]
+  roomType           RoomType
+  accommodationType  AccommodationType
+  livingPreferences  String[]
+  foodPreference     FoodPreference
+  address            String
+  latitude           Float?
+  longitude          Float?
+  contactInfo        String
+  description        String?
+  nearbyUniversities String[]
+  distanceFromUni    Float?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  // Relations
+  owner     User      @relation(fields: [ownerId], references: [id])
+  ownerId   String
+  inquiries Inquiry[]
+  reviews   Review[]
+
+  @@map("accommodation_listings")
+}
+
+model FoodServiceListing {
+  id                String          @id @default(cuid())
+  serviceName       String
+  photos            String[]
+  serviceType       FoodServiceType
+  priceRange        PriceRange
+  menuDetails       String?
+  cuisineType       String[]
+  vegOptions        Boolean
+  nonVegOptions     Boolean
+  address           String
+  latitude          Float?
+  longitude         Float?
+  contactInfo       String
+  description       String?
+  operatingHours    String?
+  deliveryAvailable Boolean         @default(false)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  // Relations
+  owner     User      @relation(fields: [ownerId], references: [id])
+  ownerId   String
+  inquiries Inquiry[]
+  reviews   Review[]
+
+  @@map("food_service_listings")
+}
+
+model Inquiry {
+  id           String        @id @default(cuid())
+  message      String
+  studentName  String
+  studentEmail String
+  studentPhone String
+  status       InquiryStatus @default(PENDING)
+  response     String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  // Relations
+  student                User                  @relation(fields: [studentId], references: [id])
+  studentId              String
+  accommodationListing   AccommodationListing? @relation(fields: [accommodationListingId], references: [id])
+  accommodationListingId String?
+  foodServiceListing     FoodServiceListing?   @relation(fields: [foodServiceListingId], references: [id])
+  foodServiceListingId   String?
+
+  @@map("inquiries")
+}
+
+model Review {
+  id        String   @id @default(cuid())
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user                   User                  @relation(fields: [userId], references: [id])
+  userId                 String
+  accommodationListing   AccommodationListing? @relation(fields: [accommodationListingId], references: [id])
+  accommodationListingId String?
+  foodServiceListing     FoodServiceListing?   @relation(fields: [foodServiceListingId], references: [id])
+  foodServiceListingId   String?
+
+  @@map("reviews")
+}
+
+// Enums
+enum UserType {
+  STUDENT
+  PROPERTY_OWNER
+}
+
+enum Stream {
+  ENGINEERING
+  MEDICAL
+}
+
+enum ServiceType {
+  ACCOMMODATION
+  FOOD
+  BOTH
+}
+
+enum BusinessType {
+  INDIVIDUAL
+  COMPANY
+  INSTITUTION
+}
+
+enum RoomType {
+  SINGLE
+  DOUBLE
+  SHARING
+  STUDIO
+  APARTMENT
+}
+
+enum AccommodationType {
+  PG
+  HOSTEL
+  FLAT
+  ROOM
+  APARTMENT
+}
+
+enum FoodPreference {
+  VEG
+  NON_VEG
+  BOTH
+}
+
+enum FoodServiceType {
+  MESS
+  CANTEEN
+  TIFFIN_SERVICE
+  RESTAURANT
+  CAFE
+}
+
+enum PriceRange {
+  BUDGET
+  MODERATE
+  PREMIUM
+}
+
+enum InquiryStatus {
+  PENDING
+  RESPONDED
+  CLOSED
+}
+
+// ===== Chatbot persistence (no relation to User) =====
+enum ChatRole {
+  user
+  assistant
+  system
+}
+
+model ChatSession {
+  id String @id @default(cuid())
+
+  // Optional: keep who this session belongs to (not enforced as FK)
+  userId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages ChatMessage[]
+
+  @@index([userId, createdAt])
+}
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  sessionId String
+  role      ChatRole
+  content   String
+  meta      Json?
+  createdAt DateTime @default(now())
+
+  session ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+}
