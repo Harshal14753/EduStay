@@ -29,6 +29,11 @@ type ChatMessage = {
   buttons?: BotButton[];
 };
 
+type ChatbotProps = {
+  externalOpenTrigger?: number;
+  hideLauncher?: boolean;
+};
+
 // ─── Button colour map ────────────────────────────────────────────────────────
 
 const BTN: Record<string, string> = {
@@ -123,7 +128,7 @@ function buildGreeting(session: any): { message: ChatMessage; initialStep: Step 
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function Chatbot() {
+export default function Chatbot({ externalOpenTrigger, hideLauncher = false }: ChatbotProps) {
   const router = useRouter();
   const { data: session, status } = useSession();
 
@@ -152,6 +157,13 @@ export default function Chatbot() {
   useEffect(() => {
     if (isOpen) messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isOpen]);
+
+  // Allow parent components (e.g. dashboard CTA) to open EduBot without route navigation.
+  useEffect(() => {
+    if ((externalOpenTrigger ?? 0) > 0) {
+      setIsOpen(true);
+    }
+  }, [externalOpenTrigger]);
 
   const pushMessages = (msgs: ChatMessage[]) =>
     setMessages((prev) => [...prev, ...msgs]);
@@ -477,7 +489,7 @@ export default function Chatbot() {
   return (
     <div className="relative">
       {/* Floating chat bubble */}
-      {!isOpen && (
+      {!isOpen && !hideLauncher && (
         <button
           onClick={() => setIsOpen(true)}
           className="bg-blue-600 text-white p-4 rounded-full shadow-xl hover:bg-blue-700 transition-colors"

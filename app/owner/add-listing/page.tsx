@@ -3,7 +3,7 @@
 
 import { useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
-import { redirect } from 'next/navigation';
+import { redirect, useRouter, useSearchParams } from 'next/navigation';
 import { Navigation } from '@/components/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -17,9 +17,15 @@ import { useToast } from '@/hooks/use-toast';
 
 export default function AddListingPage() {
   const { data: session, status } = useSession() || {};
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { toast } = useToast();
+  const editListingId = searchParams.get('id');
+  const editListingType = searchParams.get('type') as 'accommodation' | 'food' | null;
+  const isEditMode = Boolean(editListingId && (editListingType === 'accommodation' || editListingType === 'food'));
   const [listingType, setListingType] = useState<'accommodation' | 'food'>('accommodation');
   const [isLoading, setIsLoading] = useState(false);
+  const [isPrefillLoading, setIsPrefillLoading] = useState(false);
 
   const [accommodationData, setAccommodationData] = useState({
     propertyName: '',
@@ -60,15 +66,82 @@ export default function AddListingPage() {
     if (userType !== 'PROPERTY_OWNER') {
       redirect('/student/dashboard');
     }
+
+    if (isEditMode && editListingType) {
+      setListingType(editListingType);
+      loadListingForEdit(editListingType, editListingId as string);
+    }
   }, [session, status]);
+
+  const loadListingForEdit = async (type: 'accommodation' | 'food', id: string) => {
+    setIsPrefillLoading(true);
+    try {
+      const endpoint = type === 'accommodation'
+        ? `/api/listings/accommodation/${id}`
+        : `/api/listings/food/${id}`;
+
+      const response = await fetch(endpoint);
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to load listing details');
+      }
+
+      if (type === 'accommodation' && data.accommodation) {
+        const accommodation = data.accommodation;
+        setAccommodationData({
+          propertyName: accommodation.propertyName || '',
+          monthlyRent: String(accommodation.monthlyRent || ''),
+          deposit: accommodation.deposit ? String(accommodation.deposit) : '',
+          roomType: accommodation.roomType || '',
+          accommodationType: accommodation.accommodationType || '',
+          foodPreference: accommodation.foodPreference || '',
+          address: accommodation.address || '',
+          contactInfo: accommodation.contactInfo || '',
+          description: accommodation.description || '',
+          nearbyUniversities: accommodation.nearbyUniversities || [],
+          amenities: accommodation.amenities || [],
+          livingPreferences: accommodation.livingPreferences || []
+        });
+      }
+
+      if (type === 'food' && data.foodService) {
+        const foodService = data.foodService;
+        setFoodServiceData({
+          serviceName: foodService.serviceName || '',
+          serviceType: foodService.serviceType || '',
+          priceRange: foodService.priceRange || '',
+          address: foodService.address || '',
+          contactInfo: foodService.contactInfo || '',
+          description: foodService.description || '',
+          operatingHours: foodService.operatingHours || '',
+          cuisineType: foodService.cuisineType || [],
+          vegOptions: Boolean(foodService.vegOptions),
+          nonVegOptions: Boolean(foodService.nonVegOptions),
+          deliveryAvailable: Boolean(foodService.deliveryAvailable)
+        });
+      }
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to load listing details',
+        variant: 'destructive'
+      });
+      router.push('/owner/listings');
+    } finally {
+      setIsPrefillLoading(false);
+    }
+  };
 
   const handleAccommodationSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
 
     try {
-      const response = await fetch('/api/listings/accommodation', {
-        method: 'POST',
+      const response = await fetch(
+        isEditMode ? `/api/listings/accommodation/${editListingId}` : '/api/listings/accommodation',
+        {
+        method: isEditMode ? 'PATCH' : 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
@@ -84,8 +157,16 @@ export default function AddListingPage() {
       if (response.ok) {
         toast({
           title: 'Success!',
-          description: 'Your accommodation listing has been created successfully.'
+          description: isEditMode
+            ? 'Your accommodation listing has been updated successfully.'
+            : 'Your accommodation listing has been created successfully.'
         });
+
+        if (isEditMode) {
+          router.push('/owner/listings');
+          return;
+        }
+
         // Reset form
         setAccommodationData({
           propertyName: '',
@@ -124,8 +205,10 @@ export default function AddListingPage() {
     setIsLoading(true);
 
     try {
-      const response = await fetch('/api/listings/food', {
-        method: 'POST',
+      const response = await fetch(
+        isEditMode ? `/api/listings/food/${editListingId}` : '/api/listings/food',
+        {
+        method: isEditMode ? 'PATCH' : 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
@@ -137,8 +220,16 @@ export default function AddListingPage() {
       if (response.ok) {
         toast({
           title: 'Success!',
-          description: 'Your food service listing has been created successfully.'
+          description: isEditMode
+            ? 'Your food service listing has been updated successfully.'
+            : 'Your food service listing has been created successfully.'
         });
+
+        if (isEditMode) {
+          router.push('/owner/listings');
+          return;
+        }
+
         // Reset form
         setFoodServiceData({
           serviceName: '',
@@ -183,7 +274,7 @@ export default function AddListingPage() {
     }
   };
 
-  if (status === 'loading') {
+  if (status === 'loading' || isPrefillLoading) {
     return <div>Loading...</div>;
   }
 
@@ -193,8 +284,14 @@ export default function AddListingPage() {
       
       <main className="container mx-auto px-4 py-8 max-w-4xl">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Create New Listing</h1>
-          <p className="text-gray-600">Add your property or food service to connect with students</p>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">
+            {isEditMode ? 'Update Listing' : 'Create New Listing'}
+          </h1>
+          <p className="text-gray-600">
+            {isEditMode
+              ? 'Update your listing details and save the changes'
+              : 'Add your property or food service to connect with students'}
+          </p>
         </div>
 
         {/* Listing Type Selection */}
@@ -206,7 +303,9 @@ export default function AddListingPage() {
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div
-                onClick={() => setListingType('accommodation')}
+                onClick={() => {
+                  if (!isEditMode) setListingType('accommodation');
+                }}
                 className={`cursor-pointer p-6 rounded-lg border-2 transition-all ${
                   listingType === 'accommodation'
                     ? 'border-blue-500 bg-blue-50'
@@ -223,7 +322,9 @@ export default function AddListingPage() {
               </div>
 
               <div
-                onClick={() => setListingType('food')}
+                onClick={() => {
+                  if (!isEditMode) setListingType('food');
+                }}
                 className={`cursor-pointer p-6 rounded-lg border-2 transition-all ${
                   listingType === 'food'
                     ? 'border-green-500 bg-green-50'
@@ -239,6 +340,11 @@ export default function AddListingPage() {
                 </div>
               </div>
             </div>
+            {isEditMode && (
+              <p className="text-xs text-gray-500 mt-3">
+                Listing type is locked while editing.
+              </p>
+            )}
           </CardContent>
         </Card>
 
@@ -451,7 +557,9 @@ export default function AddListingPage() {
                   disabled={isLoading}
                   className="w-full h-12 bg-blue-600 hover:bg-blue-700"
                 >
-                  {isLoading ? 'Creating Listing...' : 'Create Accommodation Listing'}
+                  {isLoading
+                    ? (isEditMode ? 'Updating Listing...' : 'Creating Listing...')
+                    : (isEditMode ? 'Update Accommodation Listing' : 'Create Accommodation Listing')}
                 </Button>
               </form>
             </CardContent>
@@ -636,7 +744,9 @@ export default function AddListingPage() {
                   disabled={isLoading}
                   className="w-full h-12 bg-green-600 hover:bg-green-700"
                 >
-                  {isLoading ? 'Creating Listing...' : 'Create Food Service Listing'}
+                  {isLoading
+                    ? (isEditMode ? 'Updating Listing...' : 'Creating Listing...')
+                    : (isEditMode ? 'Update Food Service Listing' : 'Create Food Service Listing')}
                 </Button>
               </form>
             </CardContent>

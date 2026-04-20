@@ -1,11 +1,15 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Textarea } from '@/components/ui/textarea';
+import { useSession } from 'next-auth/react';
+import { useToast } from '@/hooks/use-toast';
 import { 
   Building2, 
   UtensilsIcon, 
@@ -14,6 +18,7 @@ import {
   Phone, 
   Mail,
   Eye,
+  MessageSquare,
   Wifi,
   Car,
   Utensils,
@@ -33,10 +38,41 @@ interface SearchResultsProps {
 }
 
 export function SearchResults({ results, isLoading, searchQuery }: SearchResultsProps) {
+  const { data: session } = useSession() || {};
+  const { toast } = useToast();
+  const [localResults, setLocalResults] = useState(results);
   const [selectedAccommodation, setSelectedAccommodation] = useState<any | null>(null);
   const [selectedFoodService, setSelectedFoodService] = useState<any | null>(null);
+  const [inquiryMessage, setInquiryMessage] = useState('');
+  const [isSubmittingInquiry, setIsSubmittingInquiry] = useState(false);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewComment, setReviewComment] = useState('');
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+
+  useEffect(() => {
+    setLocalResults(results);
+  }, [results]);
 
   const isDetailsOpen = !!selectedAccommodation || !!selectedFoodService;
+  const currentUserId = (session?.user as any)?.id;
+  const isStudent = (session?.user as any)?.userType === 'STUDENT';
+
+  const currentStudentReview = useMemo(() => {
+    const reviews = selectedAccommodation?.reviews || selectedFoodService?.reviews || [];
+    if (!currentUserId) return null;
+    return reviews.find((review: any) => review.userId === currentUserId) || null;
+  }, [selectedAccommodation, selectedFoodService, currentUserId]);
+
+  useEffect(() => {
+    if (currentStudentReview) {
+      setReviewRating(currentStudentReview.rating || 5);
+      setReviewComment(currentStudentReview.comment || '');
+      return;
+    }
+
+    setReviewRating(5);
+    setReviewComment('');
+  }, [currentStudentReview, selectedAccommodation?.id, selectedFoodService?.id]);
 
   const getAmenityIcon = (amenity: string) => {
     switch (amenity.toLowerCase()) {
@@ -72,6 +108,159 @@ export function SearchResults({ results, isLoading, searchQuery }: SearchResults
   const closeDetailsPanel = () => {
     setSelectedAccommodation(null);
     setSelectedFoodService(null);
+    setInquiryMessage('');
+    setReviewRating(5);
+    setReviewComment('');
+  };
+
+  const upsertReviewInList = (items: any[], listingId: string, nextReview: any) =>
+    items.map((item) => {
+      if (item.id !== listingId) return item;
+      const existingIndex = (item.reviews || []).findIndex((review: any) => review.id === nextReview.id);
+      if (existingIndex >= 0) {
+        const updatedReviews = [...item.reviews];
+        updatedReviews[existingIndex] = nextReview;
+        return { ...item, reviews: updatedReviews };
+      }
+      return { ...item, reviews: [nextReview, ...(item.reviews || [])] };
+    });
+
+  const handleReviewSubmit = async (listingType: 'accommodation' | 'food') => {
+    const listingId = listingType === 'accommodation' ? selectedAccommodation?.id : selectedFoodService?.id;
+    if (!listingId || isSubmittingReview) return;
+
+    setIsSubmittingReview(true);
+    try {
+      const payload = {
+        rating: reviewRating,
+        comment: reviewComment,
+        ...(listingType === 'accommodation'
+          ? { accommodationListingId: listingId }
+          : { foodServiceListingId: listingId }),
+      };
+
+      const response = await fetch('/api/reviews', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        toast({
+          title: 'Review not submitted',
+          description: data.error || 'Something went wrong while saving your review.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      const nextReview = data.review;
+      setLocalResults((prev) => {
+        if (listingType === 'accommodation') {
+          return {
+            ...prev,
+            accommodations: upsertReviewInList(prev.accommodations, listingId, nextReview),
+          };
+        }
+
+        return {
+          ...prev,
+          foodServices: upsertReviewInList(prev.foodServices, listingId, nextReview),
+        };
+      });
+
+      if (listingType === 'accommodation') {
+        setSelectedAccommodation((prev: any) => {
+          if (!prev) return prev;
+          const reviews = prev.reviews || [];
+          const existingIndex = reviews.findIndex((review: any) => review.id === nextReview.id);
+          if (existingIndex >= 0) {
+            const updatedReviews = [...reviews];
+            updatedReviews[existingIndex] = nextReview;
+            return { ...prev, reviews: updatedReviews };
+          }
+          return { ...prev, reviews: [nextReview, ...reviews] };
+        });
+      } else {
+        setSelectedFoodService((prev: any) => {
+          if (!prev) return prev;
+          const reviews = prev.reviews || [];
+          const existingIndex = reviews.findIndex((review: any) => review.id === nextReview.id);
+          if (existingIndex >= 0) {
+            const updatedReviews = [...reviews];
+            updatedReviews[existingIndex] = nextReview;
+            return { ...prev, reviews: updatedReviews };
+          }
+          return { ...prev, reviews: [nextReview, ...reviews] };
+        });
+      }
+
+      toast({
+        title: 'Success',
+        description: data.message || 'Your review has been saved.',
+      });
+    } catch (error) {
+      toast({
+        title: 'Review not submitted',
+        description: 'Unexpected error while saving review. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSubmittingReview(false);
+    }
+  };
+
+  const handleInquirySubmit = async (listingType: 'accommodation' | 'food') => {
+    const listingId = listingType === 'accommodation' ? selectedAccommodation?.id : selectedFoodService?.id;
+    const message = inquiryMessage.trim();
+    if (!listingId || !message || isSubmittingInquiry) return;
+
+    setIsSubmittingInquiry(true);
+    try {
+      const payload = {
+        message,
+        ...(listingType === 'accommodation'
+          ? { accommodationListingId: listingId }
+          : { foodServiceListingId: listingId }),
+      };
+
+      const response = await fetch('/api/inquiries', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        toast({
+          title: 'Inquiry not sent',
+          description: data.error || 'Unable to send inquiry. Please try again.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      setInquiryMessage('');
+      toast({
+        title: 'Inquiry sent',
+        description: data.message || 'Your inquiry has been shared with the owner.',
+      });
+    } catch (error) {
+      toast({
+        title: 'Inquiry not sent',
+        description: 'Unexpected error while sending inquiry. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSubmittingInquiry(false);
+    }
   };
 
   if (isLoading) {
@@ -95,7 +284,7 @@ export function SearchResults({ results, isLoading, searchQuery }: SearchResults
     );
   }
 
-  const totalResults = results.accommodations.length + results.foodServices.length;
+  const totalResults = localResults.accommodations.length + localResults.foodServices.length;
 
   return (
     <div className="space-y-6">
@@ -106,28 +295,28 @@ export function SearchResults({ results, isLoading, searchQuery }: SearchResults
           {searchQuery && ` for "${searchQuery}"`}
         </h2>
         <div className="flex space-x-2">
-          {results.accommodations.length > 0 && (
+          {localResults.accommodations.length > 0 && (
             <Badge variant="secondary">
-              {results.accommodations.length} Accommodations
+              {localResults.accommodations.length} Accommodations
             </Badge>
           )}
-          {results.foodServices.length > 0 && (
+          {localResults.foodServices.length > 0 && (
             <Badge variant="secondary">
-              {results.foodServices.length} Food Services
+              {localResults.foodServices.length} Food Services
             </Badge>
           )}
         </div>
       </div>
 
       {/* Accommodation Results */}
-      {results.accommodations.length > 0 && (
+      {localResults.accommodations.length > 0 && (
         <div className="space-y-4">
           <h3 className="text-lg font-medium text-gray-900 flex items-center">
             <Building2 className="h-5 w-5 mr-2 text-blue-600" />
             Accommodation Options
           </h3>
           
-          {results.accommodations.map((accommodation) => (
+          {localResults.accommodations.map((accommodation) => (
             <Card key={accommodation.id} className="border-0 shadow-md hover:shadow-lg transition-shadow">
               <CardContent className="p-6">
                 <div className="flex flex-col lg:flex-row space-y-4 lg:space-y-0 lg:space-x-6">
@@ -219,6 +408,14 @@ export function SearchResults({ results, isLoading, searchQuery }: SearchResults
                           <Eye className="h-4 w-4 mr-1" />
                           View Details
                         </Button>
+                        <Link
+                          href={`/student/inquiries?listingType=accommodation&listingId=${accommodation.id}&listingName=${encodeURIComponent(accommodation.propertyName)}`}
+                        >
+                          <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700">
+                            <MessageSquare className="h-4 w-4 mr-1" />
+                            Inquiry
+                          </Button>
+                        </Link>
                         <Button 
                           size="sm"
                           onClick={() => handleContactOwner(accommodation.contactInfo)}
@@ -238,14 +435,14 @@ export function SearchResults({ results, isLoading, searchQuery }: SearchResults
       )}
 
       {/* Food Service Results */}
-      {results.foodServices.length > 0 && (
+      {localResults.foodServices.length > 0 && (
         <div className="space-y-4">
           <h3 className="text-lg font-medium text-gray-900 flex items-center">
             <UtensilsIcon className="h-5 w-5 mr-2 text-green-600" />
             Food Service Options
           </h3>
           
-          {results.foodServices.map((foodService) => (
+          {localResults.foodServices.map((foodService) => (
             <Card key={foodService.id} className="border-0 shadow-md hover:shadow-lg transition-shadow">
               <CardContent className="p-6">
                 <div className="flex flex-col lg:flex-row space-y-4 lg:space-y-0 lg:space-x-6">
@@ -334,6 +531,14 @@ export function SearchResults({ results, isLoading, searchQuery }: SearchResults
                           <Eye className="h-4 w-4 mr-1" />
                           View Details
                         </Button>
+                        <Link
+                          href={`/student/inquiries?listingType=food&listingId=${foodService.id}&listingName=${encodeURIComponent(foodService.serviceName)}`}
+                        >
+                          <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700">
+                            <MessageSquare className="h-4 w-4 mr-1" />
+                            Inquiry
+                          </Button>
+                        </Link>
                         <Button 
                           size="sm"
                           onClick={() => handleContactOwner(foodService.contactInfo)}
@@ -460,6 +665,121 @@ export function SearchResults({ results, isLoading, searchQuery }: SearchResults
                 <h4 className="font-semibold mb-2">Contact</h4>
                 <p className="text-sm text-gray-700">{selectedAccommodation.contactInfo || 'Not available'}</p>
               </div>
+
+              {isStudent && (
+                <Card className="border border-indigo-100 bg-indigo-50/40">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Send Inquiry to Owner</CardTitle>
+                    <CardDescription>Your message will be delivered to this listing owner.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <Textarea
+                      value={inquiryMessage}
+                      onChange={(e) => setInquiryMessage(e.target.value)}
+                      placeholder="Hi, I am interested in this accommodation. Please share availability and visit timings."
+                      maxLength={1000}
+                      rows={4}
+                    />
+                    <p className="text-xs text-gray-500">{inquiryMessage.length}/1000</p>
+                    <Button
+                      onClick={() => handleInquirySubmit('accommodation')}
+                      disabled={isSubmittingInquiry || inquiryMessage.trim().length < 5}
+                      className="bg-indigo-600 hover:bg-indigo-700"
+                    >
+                      {isSubmittingInquiry ? 'Sending...' : 'Send Inquiry'}
+                    </Button>
+                  </CardContent>
+                </Card>
+              )}
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-semibold">Student Reviews</h4>
+                  {selectedAccommodation.reviews?.length > 0 && (
+                    <div className="flex items-center text-sm text-gray-600">
+                      <Star className="h-4 w-4 text-yellow-500 fill-current mr-1" />
+                      {calculateAverageRating(selectedAccommodation.reviews)}
+                      <span className="ml-1">({selectedAccommodation.reviews.length})</span>
+                    </div>
+                  )}
+                </div>
+
+                {isStudent && (
+                  <Card className="border border-blue-100 bg-blue-50/40">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base">
+                        {currentStudentReview ? 'Update your review' : 'Write a review'}
+                      </CardTitle>
+                      <CardDescription>Share your experience to help other students.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div>
+                        <p className="text-sm font-medium mb-2">Your Rating</p>
+                        <div className="flex items-center gap-1">
+                          {[1, 2, 3, 4, 5].map((value) => (
+                            <button
+                              key={value}
+                              type="button"
+                              onClick={() => setReviewRating(value)}
+                              className="p-1"
+                              aria-label={`Rate ${value} stars`}
+                            >
+                              <Star
+                                className={`h-5 w-5 ${value <= reviewRating ? 'text-yellow-500 fill-current' : 'text-gray-300'}`}
+                              />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium mb-2">Your Comment</p>
+                        <Textarea
+                          value={reviewComment}
+                          onChange={(e) => setReviewComment(e.target.value)}
+                          placeholder="What did you like or dislike?"
+                          maxLength={500}
+                          rows={3}
+                        />
+                        <p className="text-xs text-gray-500 mt-1">{reviewComment.length}/500</p>
+                      </div>
+                      <Button
+                        onClick={() => handleReviewSubmit('accommodation')}
+                        disabled={isSubmittingReview}
+                        className="bg-blue-600 hover:bg-blue-700"
+                      >
+                        {isSubmittingReview ? 'Saving...' : currentStudentReview ? 'Update Review' : 'Submit Review'}
+                      </Button>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {selectedAccommodation.reviews?.length > 0 ? (
+                  <div className="space-y-3">
+                    {selectedAccommodation.reviews
+                      .slice()
+                      .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+                      .map((review: any) => (
+                        <div key={review.id} className="rounded-lg border bg-white p-3">
+                          <div className="flex items-center justify-between gap-3 mb-1">
+                            <p className="text-sm font-medium text-gray-900">{review.user?.name || 'Student'}</p>
+                            <p className="text-xs text-gray-500">{new Date(review.createdAt).toLocaleDateString()}</p>
+                          </div>
+                          <div className="flex items-center mb-2">
+                            {[1, 2, 3, 4, 5].map((value) => (
+                              <Star
+                                key={value}
+                                className={`h-4 w-4 ${value <= review.rating ? 'text-yellow-500 fill-current' : 'text-gray-300'}`}
+                              />
+                            ))}
+                          </div>
+                          <p className="text-sm text-gray-700">{review.comment || 'No comment provided.'}</p>
+                        </div>
+                      ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500">No reviews yet. Be the first student to review this listing.</p>
+                )}
+              </div>
             </div>
           )}
 
@@ -535,6 +855,121 @@ export function SearchResults({ results, isLoading, searchQuery }: SearchResults
               <div>
                 <h4 className="font-semibold mb-2">Contact</h4>
                 <p className="text-sm text-gray-700">{selectedFoodService.contactInfo || 'Not available'}</p>
+              </div>
+
+              {isStudent && (
+                <Card className="border border-indigo-100 bg-indigo-50/40">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Send Inquiry to Owner</CardTitle>
+                    <CardDescription>Your message will be delivered to this listing owner.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <Textarea
+                      value={inquiryMessage}
+                      onChange={(e) => setInquiryMessage(e.target.value)}
+                      placeholder="Hi, I am interested in this food service. Please share pricing and monthly plans."
+                      maxLength={1000}
+                      rows={4}
+                    />
+                    <p className="text-xs text-gray-500">{inquiryMessage.length}/1000</p>
+                    <Button
+                      onClick={() => handleInquirySubmit('food')}
+                      disabled={isSubmittingInquiry || inquiryMessage.trim().length < 5}
+                      className="bg-indigo-600 hover:bg-indigo-700"
+                    >
+                      {isSubmittingInquiry ? 'Sending...' : 'Send Inquiry'}
+                    </Button>
+                  </CardContent>
+                </Card>
+              )}
+
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-semibold">Student Reviews</h4>
+                  {selectedFoodService.reviews?.length > 0 && (
+                    <div className="flex items-center text-sm text-gray-600">
+                      <Star className="h-4 w-4 text-yellow-500 fill-current mr-1" />
+                      {calculateAverageRating(selectedFoodService.reviews)}
+                      <span className="ml-1">({selectedFoodService.reviews.length})</span>
+                    </div>
+                  )}
+                </div>
+
+                {isStudent && (
+                  <Card className="border border-green-100 bg-green-50/40">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-base">
+                        {currentStudentReview ? 'Update your review' : 'Write a review'}
+                      </CardTitle>
+                      <CardDescription>Help other students choose better food services.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div>
+                        <p className="text-sm font-medium mb-2">Your Rating</p>
+                        <div className="flex items-center gap-1">
+                          {[1, 2, 3, 4, 5].map((value) => (
+                            <button
+                              key={value}
+                              type="button"
+                              onClick={() => setReviewRating(value)}
+                              className="p-1"
+                              aria-label={`Rate ${value} stars`}
+                            >
+                              <Star
+                                className={`h-5 w-5 ${value <= reviewRating ? 'text-yellow-500 fill-current' : 'text-gray-300'}`}
+                              />
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium mb-2">Your Comment</p>
+                        <Textarea
+                          value={reviewComment}
+                          onChange={(e) => setReviewComment(e.target.value)}
+                          placeholder="Tell others about food quality, hygiene, and value."
+                          maxLength={500}
+                          rows={3}
+                        />
+                        <p className="text-xs text-gray-500 mt-1">{reviewComment.length}/500</p>
+                      </div>
+                      <Button
+                        onClick={() => handleReviewSubmit('food')}
+                        disabled={isSubmittingReview}
+                        className="bg-green-600 hover:bg-green-700"
+                      >
+                        {isSubmittingReview ? 'Saving...' : currentStudentReview ? 'Update Review' : 'Submit Review'}
+                      </Button>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {selectedFoodService.reviews?.length > 0 ? (
+                  <div className="space-y-3">
+                    {selectedFoodService.reviews
+                      .slice()
+                      .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+                      .map((review: any) => (
+                        <div key={review.id} className="rounded-lg border bg-white p-3">
+                          <div className="flex items-center justify-between gap-3 mb-1">
+                            <p className="text-sm font-medium text-gray-900">{review.user?.name || 'Student'}</p>
+                            <p className="text-xs text-gray-500">{new Date(review.createdAt).toLocaleDateString()}</p>
+                          </div>
+                          <div className="flex items-center mb-2">
+                            {[1, 2, 3, 4, 5].map((value) => (
+                              <Star
+                                key={value}
+                                className={`h-4 w-4 ${value <= review.rating ? 'text-yellow-500 fill-current' : 'text-gray-300'}`}
+                              />
+                            ))}
+                          </div>
+                          <p className="text-sm text-gray-700">{review.comment || 'No comment provided.'}</p>
+                        </div>
+                      ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500">No reviews yet. Be the first student to review this service.</p>
+                )}
               </div>
             </div>
           )}

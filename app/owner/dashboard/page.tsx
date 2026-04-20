@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { prisma } from "@/lib/db";
+import { OpenChatAssistantButton } from "@/components/owner/open-chat-assistant-button";
 import Link from "next/link";
 import { 
   Building2, 
@@ -156,7 +157,7 @@ export default async function OwnerDashboard() {
                   </Button>
                 </Link>
                 <Link href="/owner/listings">
-                  <Button variant="outline" className="border-white/40 text-white hover:bg-white/10">
+                  <Button className="bg-white text-blue-700 hover:bg-blue-50">
                     Manage Listings
                     <ArrowRight className="h-4 w-4 ml-2" />
                   </Button>
@@ -210,12 +211,7 @@ export default async function OwnerDashboard() {
                 </Button>
               </Link>
               
-              <Link href="/chatbot">
-                <Button variant="outline" className="w-full h-20 flex flex-col space-y-2 hover:bg-gray-50">
-                  <MessageSquare className="h-6 w-6" />
-                  <span>Open Chat Assistant</span>
-                </Button>
-              </Link>
+              <OpenChatAssistantButton />
             </div>
           </CardContent>
         </Card>

@@ -58,16 +58,35 @@ export const authOptions: NextAuthOptions = {
     signIn: "/auth/login"
   },
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session }) {
       if (user) {
+        token.name = user.name;
+        token.email = user.email;
         token.userType = (user as any).userType;
         token.phone = (user as any).phone;
         token.university = (user as any).university;
       }
+
+      if (trigger === "update" && session) {
+        if ((session as any).name !== undefined) {
+          token.name = (session as any).name;
+        }
+        if ((session as any).phone !== undefined) {
+          token.phone = (session as any).phone;
+        }
+        if ((session as any).university !== undefined) {
+          token.university = (session as any).university;
+        }
+      }
+
       return token;
     },
     async session({ session, token }) {
       if (token) {
+        if (session.user) {
+          session.user.name = (token.name as string) ?? session.user.name;
+          session.user.email = (token.email as string) ?? session.user.email;
+        }
         (session.user as any).id = token.sub;
         (session.user as any).userType = token.userType;
         (session.user as any).phone = token.phone;

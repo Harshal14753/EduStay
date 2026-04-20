@@ -249,3 +249,15 @@
   animation: fadeInUp 0.6s ease-out forwards;
   opacity: 0;
 }
+
+@media (min-width: 768px) {
+  body.has-left-taskbar:not(.left-taskbar-collapsed) main.container {
+    margin-left: 16rem;
+    max-width: calc(100% - 16rem);
+  }
+
+  body.has-left-taskbar.left-taskbar-collapsed main.container {
+    margin-left: 5rem;
+    max-width: calc(100% - 5rem);
+  }
+}

@@ -126,8 +126,22 @@ model Inquiry {
   accommodationListingId String?
   foodServiceListing     FoodServiceListing?   @relation(fields: [foodServiceListingId], references: [id])
   foodServiceListingId   String?
+  inquiryMessages        InquiryMessage[]
 
   @@map("inquiries")
+}
+
+model InquiryMessage {
+  id        String        @id @default(cuid())
+  inquiryId String
+  sender    InquirySender
+  message   String
+  createdAt DateTime      @default(now())
+
+  inquiry Inquiry @relation(fields: [inquiryId], references: [id], onDelete: Cascade)
+
+  @@index([inquiryId, createdAt])
+  @@map("inquiry_messages")
 }
 
 model Review {
@@ -211,6 +225,11 @@ enum InquiryStatus {
   PENDING
   RESPONDED
   CLOSED
+}
+
+enum InquirySender {
+  STUDENT
+  OWNER
 }
 
 // ===== Chatbot persistence (no relation to User) =====

@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import ProfileUpdateForm from "./profile-update-form";
 import { User, Mail, Phone, Calendar, GraduationCap, Building2, UtensilsIcon } from "lucide-react";
 
 function formatEnum(value?: string | null) {
@@ -36,6 +37,7 @@ export default async function ProfilePage() {
       university: true,
       stream: true,
       serviceType: true,
+      businessType: true,
       createdAt: true,
       accommodationListings: {
         select: { id: true, propertyName: true, availability: true },
@@ -79,9 +81,9 @@ export default async function ProfilePage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <User className="h-5 w-5 text-blue-600" />
-                Account Details
+                Account Details & Update
               </CardTitle>
-              <CardDescription>Your registered details on EduStay</CardDescription>
+              <CardDescription>View and update your account details on EduStay</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex flex-wrap items-center gap-3">
@@ -109,6 +111,22 @@ export default async function ProfilePage() {
                   <p className="text-xs text-gray-500 mb-1">User Type</p>
                   <p className="text-sm font-medium text-gray-900">{formatEnum(user.userType)}</p>
                 </div>
+              </div>
+
+              <div className="rounded-lg border p-4">
+                <h3 className="text-sm font-semibold text-gray-900 mb-3">Update Profile</h3>
+                <ProfileUpdateForm
+                  initialUser={{
+                    name: user.name,
+                    email: user.email,
+                    phone: user.phone,
+                    userType: user.userType,
+                    university: user.university,
+                    stream: user.stream,
+                    serviceType: user.serviceType,
+                    businessType: user.businessType,
+                  }}
+                />
               </div>
 
               {!isOwner && (
