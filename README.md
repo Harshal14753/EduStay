@@ -137,4 +137,5 @@ If prisma generate fails on Windows with a locked query engine file:
 MIT
 
 ## Author
-Harshal - EduStay Team
+Harshal = Backend developer
+Yash = Frontennd developer
